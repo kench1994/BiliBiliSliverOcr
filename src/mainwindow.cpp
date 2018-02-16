@@ -1,27 +1,76 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <QDebug>
+#include <QDir>
+#include <QVector>
+#include <stdio.h>
 #define MAX(x,y) ((x>y)?x:y)
 #define MIN(x,y,z) (((x>y?y:x)>z)?z:(x>y?y:x))
 
 
-//求解最大公共子序列,用于字符串相似度比较
-int LCS(QString str1, QString str2) {
-    int len1 = str1.length();    int len2 = str2.length();
-    int c[len1+1][len2+1];
-    for (int i = 0; i <= len1; i++) {
-        for( int j = 0; j <= len2; j++) {
+/*求解最大公共子序列,用于字符串相似度比较
+ * 可以知道我现在获得切片数据和字模其实直接用比较运算就可以得出结果
+ * 2018-02-16,发现使用该算法存在bug,比如4,+,-这几个符号与-相比较所得相似度一样
+ * 蛤铪^_^
+*/
+int LongestCommonSubsequence(QString strFirst, QString strSecond) {
+    int nLenOfFirstStr = strFirst.length();    int nLenOfSecondStr = strSecond.length();
+    QVector<QVector<int>> matrix(nLenOfFirstStr+1, QVector<int>(nLenOfSecondStr+1));
+    for (int i = 0; i <= nLenOfFirstStr; i++) {
+        for( int j = 0; j <= nLenOfSecondStr; j++) {
             if(i == 0 || j == 0) {
-                c[i][j] = 0;
-            } else if (str1.at(i-1) == str2.at(j-1)) {
-                c[i][j] = c[i-1][j-1] + 1;
+                matrix[i][j] = 0;
+            } else if (strFirst.at(i-1) == strSecond.at(j-1)) {
+                matrix[i][j] = matrix[i-1][j-1] + 1;
             } else {
-                c[i][j] = MAX(c[i-1][j], c[i][j-1]);
+                matrix[i][j] = MAX(matrix[i-1][j], matrix[i][j-1]);
             }
         }
     }
-    return c[len1][len2];
+    return matrix[nLenOfFirstStr][nLenOfSecondStr];
 }
+
+int LevenshteinDistance(QString strFirst, QString strSecond){
+    int n = strFirst.length();
+    int m = strSecond.length();
+    if (n == 0)
+       return n;
+    if (m == 0)
+       return m;
+
+    QVector<QVector<int>> matrix(n+1, QVector<int>(m+1));
+    for (int i = 1; i <= n; i++)
+    {
+        const QCharRef si = strFirst[i - 1];
+        for (int j = 1; j <= m; j++)
+        {
+
+            const QCharRef dj = strSecond[j - 1];
+            //step 5
+            int cost;
+            if (si == dj){
+                cost = 0;
+            }
+            else{
+                cost = 1;
+            }
+            const int above = matrix[i - 1][j] + 1;
+            const int left = matrix[i][j - 1] + 1;
+            const int diag = matrix[i - 1][j - 1] + cost;
+            matrix[i][j] = MIN(above, left, diag);
+
+        }
+    }
+    return matrix[n][m];
+}
+
+float SimilarTextRate(QString strFirst, QString strSecond)
+{
+    int lcs = LongestCommonSubsequence(strFirst, strSecond);
+    int ld = LevenshteinDistance(strFirst, strSecond);
+    return (float)lcs/(float)(ld+lcs);
+}
+
 //生成字模
 inline QString GenCharacterMatrix(const QString &strFilePath){
     QString strCharacterMatrix = "";
@@ -30,8 +79,10 @@ inline QString GenCharacterMatrix(const QString &strFilePath){
         for(int j = 0; j < img.width(); j++){
             strCharacterMatrix += QString::number((!img.pixelColor(j,i).value()) ? 0 :1,10);
         }
+    //qDebug()<<strCharacterMatrix;
     return strCharacterMatrix;
 }
+
 //二值化处理
 inline void BinProcessing(QImage* oriImg,QImage *binaryImage){
     for(int i = 0; i < oriImg->width(); i++)
@@ -78,8 +129,9 @@ inline int EdgeExtracting(const QImage* img,QList<QRect> &listWorldEdge){
         min = nRightEdge;
         //这边直接做了图像切割，整体来看算法针对性太强，扩展性及性能都略差，亟待改进
         QRect rect(nLeftEdge,4,nRightEdge-nLeftEdge,31);
+        //qDebug()<<rect;
         listWorldEdge.push_back(rect);
-        //img->copy(rect).save(QString("d:/"+QString::number(nSliceCount,10)+".png"));
+        img->copy(rect).save(QString("d:/"+QString::number(nSliceCount,10)+".png"));
         if(nTryTimes==0) break;//search end
         nSliceCount++;
     }
@@ -95,13 +147,13 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
     ui->textEdit->setEnabled(false);
     QStringList listCharacterMatrix;
-    for(int i = 0; i < 11 ;i++){
+    for(int i = 0; i <= 11 ;i++){
         //读取字模加载到listCharacterMatrix
         listCharacterMatrix<<GenCharacterMatrix("../bili2SliverOcr/CharacterMatrix/"+QString::number(i,10)+".png");
+        //qDebug()<<i<<":"<<GenCharacterMatrix("../bili2SliverOcr/CharacterMatrix/"+QString::number(i,10)+".png");
     }
 
-
-    QImage oriImg("D:/getCaptcha.jpg");
+    QImage oriImg("../bili2SliverOcr/getCaptcha.jpg");
     ui->originalImg->show();
     QImage binaryImage(oriImg.size(), QImage::Format_RGB32);
     BinProcessing(&oriImg,&binaryImage);
@@ -115,27 +167,41 @@ MainWindow::MainWindow(QWidget *parent) :
     //提取图像边缘,并保存到list
     QList<QRect> listWorldEdge;
     int nSliceCount = EdgeExtracting(&binaryImage,listWorldEdge);
-
+    //qDebug()<<"SliceCount:"<<nSliceCount;
     QHash<int,int> hashSimilarity;
     int nSignPos = 0;
     for(int i=0;i<nSliceCount;i++){
+        qDebug()<<"cur:"<<i;
         int nMaxSimilarity = 0;
         //读取切片数据
         QString strCompare = "";
         for(int q = listWorldEdge.at(i).y();q<listWorldEdge.at(i).height()+listWorldEdge.at(i).y();q++)
             for(int p=listWorldEdge.at(i).x();p<listWorldEdge.at(i).width()+listWorldEdge.at(i).x();p++){
-                strCompare+=(0==binaryImage.pixelColor(p,q).value())?"0":"1";
+                strCompare+=(!binaryImage.pixelColor(p,q).value())?"0":"1";
         }
+        //qDebug()<<strCompare;
         //相似度比较
         for(int j=0; j<listCharacterMatrix.length(); j++){
-            int nTempSimilarity = LCS(listCharacterMatrix.at(j),strCompare);
+//            //因为选取图片的标准性,所以可以直接使用比较运算得出结果,可以选择直接使用这种算法
+//            if(listCharacterMatrix.at(j) == strCompare)
+//            {
+//                hashSimilarity[i] = j;
+//                //qDebug()<< j;
+//                //qDebug()<<strCompare;
+//                if(j>9) nSignPos = i;
+//            }
+
+            float nTempSimilarity = SimilarTextRate(listCharacterMatrix.at(j),strCompare);
+            qDebug()<< j << "->"<<nTempSimilarity;
             if(nTempSimilarity>nMaxSimilarity) {
                 nMaxSimilarity=nTempSimilarity;
                 hashSimilarity[i] = j;
                 if(j>9) nSignPos = i;
             }
         }
+        //qDebug()<<"\r\n";
     }
+    //qDebug()<<nSignPos;
     int res1 = 0,res2 = 0,res = 0;
     for(int i = 0;i<nSignPos;i++){
         //int nDigit = nSignPos-i-1;
@@ -144,10 +210,14 @@ MainWindow::MainWindow(QWidget *parent) :
         res1*=10;
         res1+=hashSimilarity[i];
     }
+    qDebug()<<"First num:"<<res1;
+
     for(int i = nSignPos+1;i<nSliceCount;i++){
         res2*=10;
         res2+=hashSimilarity[i];
     }
+    qDebug()<<"Second num:"<<res2;
+
     if(hashSimilarity[nSignPos]==10)
         res = res1+res2;
     else if(hashSimilarity[nSignPos]==11)

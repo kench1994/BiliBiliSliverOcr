@@ -5,7 +5,7 @@
 #-----------------------------------------
 
 QT       += core gui
-
+CONIFG += c++11
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 TARGET = demo
@@ -43,3 +43,5 @@ include(src/demo.pri)
 
 #FORMS += \
 #        mainwindow.ui
+
+DISTFILES +=
